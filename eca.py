@@ -3,12 +3,14 @@ import pandas as pd
 
 
 def _binary_series(series: pd.Series) -> np.ndarray:
-    """Convert any series to a 0/1 numpy array."""
     return pd.Series(series).fillna(0).astype(int).to_numpy()
 
 
-def compute_coincidence_summary(df: pd.DataFrame, event_a: str = "Outbreak", event_b: str = "Climatic") -> dict:
-    """Return observed coincidence counts and rates for two binary event columns."""
+def compute_coincidence_summary(
+    df: pd.DataFrame,
+    event_a: str = "Outbreak",
+    event_b: str = "Climatic",
+) -> dict:
     a = _binary_series(df[event_a])
     b = _binary_series(df[event_b])
     coincidences = int(np.dot(a, b))
@@ -18,10 +20,7 @@ def compute_coincidence_summary(df: pd.DataFrame, event_a: str = "Outbreak", eve
     return {
         "coincidences": coincidences,
         "totals": totals,
-        "rates": {
-            f"{event_a} with {event_b}": float(rate_a),
-            f"{event_b} with {event_a}": float(rate_b),
-        },
+        "conditional_rates": {event_a: float(rate_a), event_b: float(rate_b)},
     }
 
 
@@ -32,7 +31,6 @@ def monte_carlo_coincidences(
     simulations: int = 1000,
     random_state: int | None = None,
 ) -> np.ndarray:
-    """Generate coincidence counts under random alignment of events."""
     a = _binary_series(df[event_a])
     b = _binary_series(df[event_b])
     rng = np.random.default_rng(random_state)
@@ -51,7 +49,6 @@ def run_event_coincidence_analysis(
     simulations: int = 1000,
     random_state: int | None = None,
 ) -> dict:
-    """Compute observed metrics, simulation outcomes, and a p-value."""
     summary = compute_coincidence_summary(df, event_a, event_b)
     sims = monte_carlo_coincidences(df, event_a, event_b, simulations, random_state)
     observed = summary["coincidences"]
@@ -62,3 +59,26 @@ def run_event_coincidence_analysis(
         "p_value": p_value,
         "expected_random_coincidences": float(np.mean(sims)),
     }
+
+
+def batch_event_coincidence(
+    df: pd.DataFrame,
+    base_event: str = "Outbreak",
+    other_events: list[str] | None = None,
+    simulations: int = 1000,
+    random_state: int | None = None,
+) -> dict:
+    events = other_events or [c for c in df.columns if c != base_event]
+    rng = np.random.default_rng(random_state)
+    seeds = rng.integers(0, 2**32 - 1, size=len(events), dtype=np.uint32) if events else np.array([], dtype=np.uint32)
+    results = {}
+    for index, event in enumerate(events):
+        seed = int(seeds[index]) if index < len(seeds) else None
+        results[event] = run_event_coincidence_analysis(
+            df,
+            event_a=base_event,
+            event_b=event,
+            simulations=simulations,
+            random_state=seed,
+        )
+    return results
